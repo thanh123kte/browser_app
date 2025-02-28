@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:brower_app/history_page.dart';
 import 'package:brower_app/searching_page.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -66,14 +67,31 @@ class _BrowserPageState extends State<BrowserPage> {
     await prefs.setStringList('saved_tabs', _tabs);
   }
 
-  void _onSearch() {
+  void _onSearch() async {
     String query = _searchController.text.trim();
     if (query.isEmpty) return;
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String> history = prefs.getStringList('history') ?? [];
+
+    // Kiểm tra xem có phải URL hợp lệ không
+    bool isUrl =
+        query.startsWith("http://") ||
+        query.startsWith("https://") ||
+        (query.contains(".") && !query.contains(" "));
+
+    String searchUrl =
+        isUrl
+            ? (query.startsWith("http") ? query : "https://$query")
+            : "https://www.google.com/search?q=$query";
+
+    history.insert(0, searchUrl);
+    prefs.setStringList('history', history);
 
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => SearchingPage(searchQuery: query),
+        builder: (context) => SearchingPage(searchQuery: searchUrl),
       ),
     );
   }
@@ -276,7 +294,16 @@ class _BrowserPageState extends State<BrowserPage> {
                 _buildShortcutItem(Icons.star, 'Dấu trang'),
                 _buildShortcutItem(Icons.list, 'Danh sách đọc'),
                 _buildShortcutItem(Icons.tab, 'Các thẻ gần đây'),
-                _buildShortcutItem(Icons.history, 'Nhật ký'),
+                _buildShortcutItem(
+                  Icons.history,
+                  'Nhật ký',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => HistoryPage()),
+                    );
+                  },
+                ),
               ],
             ),
           ],
@@ -346,16 +373,16 @@ class _BrowserPageState extends State<BrowserPage> {
           children: [
             IconButton(
               icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () {}, // Thêm logic back khi cần
+              onPressed: () {},
             ),
             IconButton(
               icon: const Icon(Icons.arrow_forward, color: Colors.white),
-              onPressed: () {}, // Thêm logic forward khi cần
+              onPressed: () {},
             ),
             FloatingActionButton.small(
               backgroundColor: Colors.blue,
               child: const Icon(Icons.add),
-              onPressed: _addNewTab, // Gọi hàm thêm tab mới
+              onPressed: _addNewTab,
             ),
             GestureDetector(
               onTap: _showTabs,
@@ -384,28 +411,24 @@ class _BrowserPageState extends State<BrowserPage> {
     );
   }
 
-  Widget _buildShortcutItem(IconData icon, String label) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.grey[800],
-            borderRadius: BorderRadius.circular(12),
+  Widget _buildShortcutItem(
+    IconData icon,
+    String title, {
+    VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap, // Xử lý khi bấm vào mục
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: Colors.white),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            style: const TextStyle(color: Colors.white, fontSize: 12),
           ),
-          child: Icon(icon, color: Colors.white),
-        ),
-        const SizedBox(height: 8),
-        Flexible(
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12, color: Colors.white),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

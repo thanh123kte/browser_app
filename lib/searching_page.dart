@@ -229,6 +229,35 @@ class _SearchingPageState extends State<SearchingPage> {
     return _bookmarkedTabs.contains(url);
   }
 
+  void _onSearch() async {
+    if (widget.searchQuery.isEmpty) return;
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String> history = prefs.getStringList('history') ?? [];
+
+    // Kiểm tra nếu searchQuery là URL hợp lệ
+    bool isUrl = Uri.tryParse(widget.searchQuery)?.hasAbsolutePath ?? false;
+    String searchUrl =
+        isUrl
+            ? widget.searchQuery
+            : "https://www.google.com/search?q=${widget.searchQuery}";
+
+    // Thêm vào đầu danh sách lịch sử (hoạt động mới nhất ở đầu)
+    history.insert(0, searchUrl);
+    prefs.setStringList('history', history);
+
+    // Load lại UI nếu cần
+    setState(() {});
+
+    // Nếu muốn điều hướng lại chính nó (tùy chọn)
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SearchingPage(searchQuery: searchUrl),
+      ),
+    );
+  }
+
   void _loadBookmarks() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     setState(() {
