@@ -17,6 +17,7 @@ class _SearchingPageState extends State<SearchingPage> {
   late TextEditingController _textController;
   bool _isLoading = true; // Trạng thái loading
   List<String> _tabs = []; // Danh sách tab
+  List<String> _bookmarkedTabs = [];
   int _currentTabIndex = 0; // Tab đang mở
 
   @override
@@ -25,6 +26,7 @@ class _SearchingPageState extends State<SearchingPage> {
     _textController = TextEditingController(text: widget.searchQuery);
     _tabs.add(_processSearchQuery(widget.searchQuery));
     _loadTabsFromCache();
+    _loadBookmarks();
 
     _initializeWebView(_tabs[_currentTabIndex]);
 
@@ -207,6 +209,35 @@ class _SearchingPageState extends State<SearchingPage> {
     print("lưu rồi nè");
   }
 
+  void _addBookmark() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String currentUrl = _tabs[_currentTabIndex];
+
+    setState(() {
+      if (_bookmarkedTabs.contains(currentUrl)) {
+        _bookmarkedTabs.remove(currentUrl);
+      } else {
+        _bookmarkedTabs.add(currentUrl);
+      }
+    });
+
+    // Lưu danh sách bookmark vào SharedPreferences
+    prefs.setStringList('bookmarks', _bookmarkedTabs);
+  }
+
+  bool _isBookmarked(String url) {
+    return _bookmarkedTabs.contains(url);
+  }
+
+  void _loadBookmarks() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _bookmarkedTabs = prefs.getStringList('bookmarks') ?? [];
+    });
+  }
+
+  void _openSettings() {}
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -368,6 +399,45 @@ class _SearchingPageState extends State<SearchingPage> {
                           ),
                         ),
                     ],
+                  ),
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, color: Colors.white),
+                    onSelected: (value) {
+                      if (value == 'bookmark') {
+                        _addBookmark();
+                      } else if (value == 'settings') {
+                        _openSettings();
+                      }
+                    },
+                    itemBuilder:
+                        (BuildContext context) => <PopupMenuEntry<String>>[
+                          PopupMenuItem<String>(
+                            value: 'bookmark',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.bookmark,
+                                  color:
+                                      _isBookmarked(_tabs[_currentTabIndex])
+                                          ? Colors.yellow
+                                          : Colors.grey,
+                                ),
+                                const SizedBox(width: 8),
+                                const Text('Bookmark'),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem<String>(
+                            value: 'settings',
+                            child: Row(
+                              children: [
+                                Icon(Icons.settings, color: Colors.grey),
+                                const SizedBox(width: 8),
+                                const Text('Cài đặt'),
+                              ],
+                            ),
+                          ),
+                        ],
                   ),
                 ],
               ),

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:brower_app/searching_page.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,7 +14,39 @@ class BrowserPage extends StatefulWidget {
 class _BrowserPageState extends State<BrowserPage> {
   final TextEditingController _searchController = TextEditingController();
   List<String> _tabs = [];
+  List<Map<String, String>> _bookmarks = [];
   int _currentTabIndex = 0;
+
+  String _getTitleFromUrl(String url) {
+    Uri uri = Uri.parse(url);
+    String domain = uri.host;
+    return domain.length > 10 ? domain.substring(0, 10) + "..." : domain;
+  }
+
+  String _getIconFromUrl(String url) {
+    Uri uri = Uri.parse(url);
+    return "https://www.google.com/s2/favicons?domain=${uri.host}&sz=64";
+  }
+
+  Future<void> _loadBookmarksFromCache() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String>? savedBookmarks = prefs.getStringList('bookmarks');
+
+    if (savedBookmarks != null) {
+      setState(() {
+        _bookmarks =
+            savedBookmarks
+                .map(
+                  (url) => {
+                    'url': url,
+                    'title': _getTitleFromUrl(url),
+                    'icon': _getIconFromUrl(url),
+                  },
+                )
+                .toList();
+      });
+    }
+  }
 
   Future<void> _loadTabsFromCache() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -146,6 +180,7 @@ class _BrowserPageState extends State<BrowserPage> {
   void initState() {
     super.initState();
     _loadTabsFromCache();
+    _loadBookmarksFromCache();
   }
 
   @override
@@ -268,19 +303,30 @@ class _BrowserPageState extends State<BrowserPage> {
               ),
             ),
             const SizedBox(height: 16),
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 4,
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 16,
-              children: [
-                _buildBookmarkItem('assets/windy.png', 'Windy'),
-                _buildBookmarkItem('assets/chatgpt.png', 'ChatGPT'),
-                _buildBookmarkItem('assets/edu.png', 'Cổng Thông tin đào tạo'),
-                _buildBookmarkItem('assets/learning.png', 'Learning M...'),
-              ],
-            ),
+            _bookmarks.isEmpty
+                ? const Center(
+                  child: Text(
+                    'Chưa có bookmark nào',
+                    style: TextStyle(color: Colors.white60),
+                  ),
+                )
+                : GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    mainAxisSpacing: 16,
+                    crossAxisSpacing: 16,
+                  ),
+                  itemCount: min(4, _bookmarks.length),
+                  itemBuilder: (context, index) {
+                    return _buildBookmarkItem(
+                      _bookmarks[index]['icon'] ?? 'assets/default.png',
+                      _bookmarks[index]['title'] ?? 'No Title',
+                      _bookmarks[index]['url'] ?? '',
+                    );
+                  },
+                ),
           ],
         ),
       ),
@@ -363,35 +409,35 @@ class _BrowserPageState extends State<BrowserPage> {
     );
   }
 
-  Widget _buildBookmarkItem(String imagePath, String title) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.grey[800],
-            image: DecorationImage(
-              image: AssetImage(imagePath),
-              fit: BoxFit.cover,
-            ),
+  Widget _buildBookmarkItem(String iconPath, String title, String url) {
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => SearchingPage(searchQuery: url),
           ),
-        ),
-        const SizedBox(height: 2),
-        SizedBox(
-          width: 80,
-          height: 32,
-          child: Text(
+        );
+      },
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Image.network(
+            iconPath,
+            width: 40,
+            height: 40,
+            errorBuilder:
+                (context, error, stackTrace) =>
+                    const Icon(Icons.bookmark, color: Colors.white),
+          ),
+          const SizedBox(height: 8),
+          Text(
             title,
-            style: const TextStyle(color: Colors.white, fontSize: 12),
-            textAlign: TextAlign.center,
-            maxLines: 2,
+            style: const TextStyle(color: Colors.white),
             overflow: TextOverflow.ellipsis,
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
