@@ -19,12 +19,14 @@ class _SearchingPageState extends State<SearchingPage> {
   List<String> _tabs = []; // Danh sách tab
   List<String> _bookmarkedTabs = [];
   int _currentTabIndex = 0; // Tab đang mở
+  List<String> _history = [];
 
   @override
   void initState() {
     super.initState();
+    _loadHistory();
     _textController = TextEditingController(text: widget.searchQuery);
-    _tabs.add(_processSearchQuery(widget.searchQuery));
+    _tabs.add(_processSearchQuery(widget.searchQuery, _history));
     _loadTabsFromCache();
     _loadBookmarks();
 
@@ -36,7 +38,9 @@ class _SearchingPageState extends State<SearchingPage> {
           ..setUserAgent(
             "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.98 Mobile Safari/537.36",
           )
-          ..loadRequest(Uri.parse(_processSearchQuery(widget.searchQuery)));
+          ..loadRequest(
+            Uri.parse(_processSearchQuery(widget.searchQuery, _history)),
+          );
   }
 
   void _initializeWebView(String url) {
@@ -59,10 +63,16 @@ class _SearchingPageState extends State<SearchingPage> {
   }
 
   /// Xử lý URL hoặc tìm kiếm trên Google
-  String _processSearchQuery(String query) {
+  String _processSearchQuery(String query, List<String> history) {
+    history = [];
+    print("check history : $history");
     if (query.startsWith('http') || query.contains('.')) {
+      history.insert(0, 'https://$query');
+      print("check history sau khi thêm  : $history");
       return query.startsWith('http') ? query : 'https://$query';
     } else {
+      history.insert(0, 'https://www.google.com/search?q=$query');
+      print("check history sau khi thêm  : $history");
       return 'https://www.google.com/search?q=$query';
     }
   }
@@ -229,39 +239,34 @@ class _SearchingPageState extends State<SearchingPage> {
     return _bookmarkedTabs.contains(url);
   }
 
-  void _onSearch() async {
-    if (widget.searchQuery.isEmpty) return;
-
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String> history = prefs.getStringList('history') ?? [];
-
-    // Kiểm tra nếu searchQuery là URL hợp lệ
-    bool isUrl = Uri.tryParse(widget.searchQuery)?.hasAbsolutePath ?? false;
-    String searchUrl =
-        isUrl
-            ? widget.searchQuery
-            : "https://www.google.com/search?q=${widget.searchQuery}";
-
-    // Thêm vào đầu danh sách lịch sử (hoạt động mới nhất ở đầu)
-    history.insert(0, searchUrl);
-    prefs.setStringList('history', history);
-
-    // Load lại UI nếu cần
-    setState(() {});
-
-    // Nếu muốn điều hướng lại chính nó (tùy chọn)
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SearchingPage(searchQuery: searchUrl),
-      ),
-    );
-  }
-
   void _loadBookmarks() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     setState(() {
       _bookmarkedTabs = prefs.getStringList('bookmarks') ?? [];
+    });
+  }
+
+  void _loadHistory() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _history = prefs.getStringList('history') ?? [];
+      print('history nèee: $_history');
+    });
+  }
+
+  void _savedHistory() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String> storedHistory = prefs.getStringList('history') ?? [];
+
+    // Thêm tất cả phần tử của _history vào đầu danh sách
+    storedHistory.insertAll(0, _history);
+
+    await prefs.setStringList('history', storedHistory);
+
+    print("đã thêm vào history nèeeee");
+
+    setState(() {
+      _history = storedHistory;
     });
   }
 
@@ -343,6 +348,7 @@ class _SearchingPageState extends State<SearchingPage> {
                         setState(() {
                           _tabs[_currentTabIndex] = _processSearchQuery(
                             newQuery,
+                            _history,
                           );
                           _initializeWebView(_tabs[_currentTabIndex]);
                         });
@@ -353,6 +359,7 @@ class _SearchingPageState extends State<SearchingPage> {
                     icon: const Icon(Icons.home, color: Colors.white),
                     onPressed: () {
                       _saveTabsToCache();
+                      _savedHistory();
                       Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(
