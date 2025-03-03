@@ -83,10 +83,9 @@ class _BrowserPageState extends State<BrowserPage> {
     String searchUrl =
         isUrl
             ? (query.startsWith("http") ? query : "https://$query")
-            : "https://www.google.com/search?q=$query";
+            : query; // Don't add "https://www.google.com/search?q=" here
 
-    history.insert(0, searchUrl);
-    prefs.setStringList('history', history);
+    // Don't add to history here, let SearchingPage handle it
 
     Navigator.push(
       context,

@@ -1,6 +1,7 @@
-import 'package:brower_app/searching_page.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
+import 'package:brower_app/searching_page.dart';
 
 class HistoryPage extends StatefulWidget {
   @override
@@ -8,7 +9,8 @@ class HistoryPage extends StatefulWidget {
 }
 
 class _HistoryPageState extends State<HistoryPage> {
-  List<String> _history = [];
+  List<Map<String, dynamic>> _history = [];
+  DateTime? _selectedDate;
 
   @override
   void initState() {
@@ -18,27 +20,30 @@ class _HistoryPageState extends State<HistoryPage> {
 
   Future<void> _loadHistory() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String>? savedHistory = prefs.getStringList('history');
+    List<String> savedHistory = prefs.getStringList('history') ?? [];
+    print("load history length: ${savedHistory.length}");
+    print("history list: ${savedHistory}");
 
-    if (savedHistory != null) {
-      setState(() {
-        _history = savedHistory;
-      });
-    }
+    setState(() {
+      _history =
+          savedHistory.map((entry) {
+            List<String> parts = entry.split('|');
+            return {'date': DateTime.parse(parts[0]), 'url': parts[1]};
+          }).toList();
+    });
   }
 
   Future<void> _removeHistoryItem(int index) async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     _history.removeAt(index);
 
-    await Future.delayed(
-      Duration(milliseconds: 100),
-    ); // Chờ trước khi cập nhật UI
+    List<String> updatedHistory =
+        _history
+            .map((item) => '${item['date'].toIso8601String()}|${item['url']}')
+            .toList();
+    await prefs.setStringList('history', updatedHistory);
 
-    if (!mounted) return;
     setState(() {});
-
-    await prefs.setStringList('history', _history);
   }
 
   void _openSearchingPage(String url) {
@@ -48,71 +53,93 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+      });
+    }
+  }
+
+  List<Map<String, dynamic>> _getFilteredHistory() {
+    if (_selectedDate == null) {
+      return _history;
+    }
+    return _history.where((item) {
+      DateTime itemDate = item['date'];
+      return itemDate.year == _selectedDate!.year &&
+          itemDate.month == _selectedDate!.month &&
+          itemDate.day == _selectedDate!.day;
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
+    List<Map<String, dynamic>> filteredHistory = _getFilteredHistory();
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Lịch sử duyệt web')),
-      body:
-          _history.isEmpty
-              ? const Center(child: Text("Không có lịch sử nào"))
-              : ListView.builder(
-                itemCount: _history.length,
-                itemBuilder: (context, index) {
-                  return Dismissible(
-                    key: Key(_history[index]),
-                    direction: DismissDirection.endToStart,
-                    background: Container(
-                      color: Colors.red,
-                      alignment: Alignment.centerRight,
-                      padding: const EdgeInsets.only(right: 20),
-                      child: const Icon(Icons.delete, color: Colors.white),
-                    ),
-                    onDismissed: (direction) async {
-                      if (index >= _history.length) return;
-
-                      String deletedItem = _history[index];
-                      _history.removeAt(index);
-
-                      await Future.delayed(
-                        Duration(milliseconds: 100),
-                      ); // Thêm delay để load lại
-
-                      if (!mounted) return;
-                      setState(() {});
-
-                      SharedPreferences prefs =
-                          await SharedPreferences.getInstance();
-                      await prefs.setStringList('history', _history);
-
-                      // Hiển thị SnackBar với Undo
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text("Đã xóa lịch sử: $deletedItem"),
-                          action: SnackBarAction(
-                            label: "Hoàn tác",
-                            onPressed: () {
-                              if (!mounted) return;
-                              setState(() {
-                                if (index <= _history.length) {
-                                  _history.insert(index, deletedItem);
-                                }
-                              });
-                              prefs.setStringList('history', _history);
-                            },
+      appBar: AppBar(
+        title: const Text('Lịch sử duyệt web'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.calendar_today),
+            onPressed: () => _selectDate(context),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          if (_selectedDate != null)
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Text(
+                'Lọc theo ngày: ${DateFormat('dd/MM/yyyy').format(_selectedDate!)}',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          Expanded(
+            child:
+                filteredHistory.isEmpty
+                    ? Center(child: Text("Không có lịch sử nào"))
+                    : ListView.builder(
+                      itemCount: filteredHistory.length,
+                      itemBuilder: (context, index) {
+                        final item = filteredHistory[index];
+                        return Dismissible(
+                          key: Key(item['url']),
+                          direction: DismissDirection.endToStart,
+                          background: Container(
+                            color: Colors.red,
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(right: 20),
+                            child: const Icon(
+                              Icons.delete,
+                              color: Colors.white,
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                    child: ListTile(
-                      leading: const Icon(Icons.history),
-                      title: Text(_history[index]),
-                      onTap: () {
-                        _openSearchingPage(_history[index]);
+                          onDismissed: (direction) => _removeHistoryItem(index),
+                          child: ListTile(
+                            leading: const Icon(Icons.history),
+                            title: Text(item['url']),
+                            subtitle: Text(
+                              DateFormat(
+                                'dd/MM/yyyy HH:mm',
+                              ).format(item['date']),
+                            ),
+                            onTap: () => _openSearchingPage(item['url']),
+                          ),
+                        );
                       },
                     ),
-                  );
-                },
-              ),
+          ),
+        ],
+      ),
     );
   }
 }

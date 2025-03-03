@@ -1,6 +1,6 @@
 import 'package:brower_app/browser_page.dart';
 import 'package:flutter/material.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SearchingPage extends StatefulWidget {
@@ -13,7 +13,7 @@ class SearchingPage extends StatefulWidget {
 }
 
 class _SearchingPageState extends State<SearchingPage> {
-  late WebViewController _webViewController;
+  late InAppWebViewController _webViewController;
   late TextEditingController _textController;
   bool _isLoading = true; // Trạng thái loading
   List<String> _tabs = []; // Danh sách tab
@@ -26,55 +26,45 @@ class _SearchingPageState extends State<SearchingPage> {
     super.initState();
     _loadHistory();
     _textController = TextEditingController(text: widget.searchQuery);
-    _tabs.add(_processSearchQuery(widget.searchQuery, _history));
+    _tabs.add(_processSearchQuery(widget.searchQuery));
     _loadTabsFromCache();
-    _loadBookmarks();
-
-    _initializeWebView(_tabs[_currentTabIndex]);
-
-    _webViewController =
-        WebViewController()
-          ..setJavaScriptMode(JavaScriptMode.unrestricted)
-          ..setUserAgent(
-            "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.98 Mobile Safari/537.36",
-          )
-          ..loadRequest(
-            Uri.parse(_processSearchQuery(widget.searchQuery, _history)),
-          );
   }
 
   void _initializeWebView(String url) {
-    _webViewController =
-        WebViewController()
-          ..setJavaScriptMode(JavaScriptMode.unrestricted)
-          ..setNavigationDelegate(
-            NavigationDelegate(
-              onPageStarted: (_) => setState(() => _isLoading = true),
-              onPageFinished: (url) {
-                setState(() {
-                  _isLoading = false;
-                  _tabs[_currentTabIndex] = url;
-                  _textController.text = url;
-                });
-              },
-            ),
-          )
-          ..loadRequest(Uri.parse(url));
+    if (_webViewController != null) {
+      _webViewController.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+    }
   }
 
   /// Xử lý URL hoặc tìm kiếm trên Google
-  String _processSearchQuery(String query, List<String> history) {
-    history = [];
-    print("check history : $history");
+  String _processSearchQuery(String query) {
     if (query.startsWith('http') || query.contains('.')) {
-      history.insert(0, 'https://$query');
-      print("check history sau khi thêm  : $history");
       return query.startsWith('http') ? query : 'https://$query';
     } else {
-      history.insert(0, 'https://www.google.com/search?q=$query');
-      print("check history sau khi thêm  : $history");
       return 'https://www.google.com/search?q=$query';
     }
+  }
+
+  void _addToHistory(String url) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String> history = prefs.getStringList('history') ?? [];
+
+    // Tạo một entry mới với URL và timestamp
+    String newEntry = '${DateTime.now().toIso8601String()}|$url';
+
+    // Xóa entry cũ nếu đã tồn tại
+    history.removeWhere((entry) => entry.split('|')[1] == url);
+
+    // Thêm entry mới vào đầu danh sách
+    history.insert(0, newEntry);
+
+    // Giới hạn lịch sử đến 100 mục
+    if (history.length > 100) {
+      history = history.sublist(0, 100);
+    }
+
+    await prefs.setStringList('history', history);
+    print("ddax add : ${newEntry}");
   }
 
   Future<void> _loadTabsFromCache() async {
@@ -219,31 +209,33 @@ class _SearchingPageState extends State<SearchingPage> {
     print("lưu rồi nè");
   }
 
-  void _addBookmark() async {
+  Future<void> _addBookmark() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    String currentUrl = _tabs[_currentTabIndex];
+    WebUri? currentUri = await _webViewController.getUrl();
+    String currentUrl = currentUri?.toString() ?? '';
+
+    if (currentUrl.isEmpty) return; // Don't add empty URLs
+
+    List<String> bookmarks = prefs.getStringList('bookmarks') ?? [];
 
     setState(() {
-      if (_bookmarkedTabs.contains(currentUrl)) {
-        _bookmarkedTabs.remove(currentUrl);
+      if (bookmarks.contains(currentUrl)) {
+        bookmarks.remove(currentUrl);
       } else {
-        _bookmarkedTabs.add(currentUrl);
+        bookmarks.add(currentUrl);
       }
     });
 
-    // Lưu danh sách bookmark vào SharedPreferences
-    prefs.setStringList('bookmarks', _bookmarkedTabs);
+    // Save the updated bookmark list
+    await prefs.setStringList('bookmarks', bookmarks);
   }
 
-  bool _isBookmarked(String url) {
-    return _bookmarkedTabs.contains(url);
-  }
-
-  void _loadBookmarks() async {
+  Future<bool> _isBookmarked() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _bookmarkedTabs = prefs.getStringList('bookmarks') ?? [];
-    });
+    List<String> bookmarks = prefs.getStringList('bookmarks') ?? [];
+    WebUri? currentUri = await _webViewController.getUrl();
+    String currentUrl = currentUri?.toString() ?? '';
+    return bookmarks.contains(currentUrl);
   }
 
   void _loadHistory() async {
@@ -251,22 +243,6 @@ class _SearchingPageState extends State<SearchingPage> {
     setState(() {
       _history = prefs.getStringList('history') ?? [];
       print('history nèee: $_history');
-    });
-  }
-
-  void _savedHistory() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String> storedHistory = prefs.getStringList('history') ?? [];
-
-    // Thêm tất cả phần tử của _history vào đầu danh sách
-    storedHistory.insertAll(0, _history);
-
-    await prefs.setStringList('history', storedHistory);
-
-    print("đã thêm vào history nèeeee");
-
-    setState(() {
-      _history = storedHistory;
     });
   }
 
@@ -278,17 +254,46 @@ class _SearchingPageState extends State<SearchingPage> {
       body: SafeArea(
         child: Column(
           children: [
-            // WebView hiển thị nội dung
             Expanded(
-              child: Stack(
-                children: [
-                  WebViewWidget(controller: _webViewController),
-                  if (_isLoading)
-                    const Center(child: CircularProgressIndicator()),
-                ],
+              child: InAppWebView(
+                initialUrlRequest: URLRequest(
+                  url: WebUri(_processSearchQuery(_tabs[_currentTabIndex])),
+                ),
+                initialOptions: InAppWebViewGroupOptions(
+                  crossPlatform: InAppWebViewOptions(
+                    javaScriptEnabled: true,
+                    useOnLoadResource: true,
+                  ),
+                  android: AndroidInAppWebViewOptions(
+                    useHybridComposition: true,
+                  ),
+                ),
+                onWebViewCreated: (controller) {
+                  _webViewController = controller;
+                },
+                onLoadStart: (controller, url) {
+                  setState(() {
+                    _isLoading = true;
+                  });
+                },
+                onLoadStop: (controller, url) {
+                  setState(() {
+                    _isLoading = false;
+                    if (url != null) {
+                      _textController.text = url.toString();
+                      _addToHistory(url.toString());
+                    }
+                  });
+                },
+                onProgressChanged: (controller, progress) {
+                  if (progress == 100) {
+                    setState(() {
+                      _isLoading = false;
+                    });
+                  }
+                },
               ),
             ),
-            // Thanh điều hướng WebView
             _buildBottomNavigation(),
           ],
         ),
@@ -296,7 +301,6 @@ class _SearchingPageState extends State<SearchingPage> {
     );
   }
 
-  /// Thanh điều hướng WebView với chức năng vuốt để chuyển tab
   /// Thanh điều hướng WebView với chức năng vuốt để chuyển tab
   Widget _buildBottomNavigation() {
     return Container(
@@ -348,7 +352,6 @@ class _SearchingPageState extends State<SearchingPage> {
                         setState(() {
                           _tabs[_currentTabIndex] = _processSearchQuery(
                             newQuery,
-                            _history,
                           );
                           _initializeWebView(_tabs[_currentTabIndex]);
                         });
@@ -359,7 +362,6 @@ class _SearchingPageState extends State<SearchingPage> {
                     icon: const Icon(Icons.home, color: Colors.white),
                     onPressed: () {
                       _saveTabsToCache();
-                      _savedHistory();
                       Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(
@@ -438,9 +440,12 @@ class _SearchingPageState extends State<SearchingPage> {
                   ),
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.more_vert, color: Colors.white),
-                    onSelected: (value) {
+                    onSelected: (value) async {
                       if (value == 'bookmark') {
-                        _addBookmark();
+                        await _addBookmark();
+                        setState(
+                          () {},
+                        ); // Cập nhật UI sau khi thêm/xóa bookmark
                       } else if (value == 'settings') {
                         _openSettings();
                       }
@@ -449,18 +454,28 @@ class _SearchingPageState extends State<SearchingPage> {
                         (BuildContext context) => <PopupMenuEntry<String>>[
                           PopupMenuItem<String>(
                             value: 'bookmark',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.bookmark,
-                                  color:
-                                      _isBookmarked(_tabs[_currentTabIndex])
-                                          ? Colors.yellow
-                                          : Colors.grey,
-                                ),
-                                const SizedBox(width: 8),
-                                const Text('Bookmark'),
-                              ],
+                            child: FutureBuilder<bool>(
+                              future: _isBookmarked(),
+                              builder: (context, snapshot) {
+                                final isBookmarked = snapshot.data ?? false;
+                                return Row(
+                                  children: [
+                                    Icon(
+                                      Icons.bookmark,
+                                      color:
+                                          isBookmarked
+                                              ? Colors.yellow
+                                              : Colors.grey,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      isBookmarked
+                                          ? 'Xóa Bookmark'
+                                          : 'Thêm Bookmark',
+                                    ),
+                                  ],
+                                );
+                              },
                             ),
                           ),
                           PopupMenuItem<String>(
