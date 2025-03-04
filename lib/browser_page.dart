@@ -206,6 +206,94 @@ class _BrowserPageState extends State<BrowserPage> {
     _loadTabsFromCache(); // Gọi lại hàm load dữ liệu khi quay lại trang
   }
 
+  Future<void> _removeBookmark(int index) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String> listBM = prefs.getStringList('bookmarks') ?? [];
+
+    setState(() {
+      listBM.removeAt(index);
+    });
+    await prefs.setStringList('bookmarks', listBM ?? []);
+  }
+
+  void _showBookmarks() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Container(
+          height: 300,
+          color: Colors.grey[900],
+          child:
+              _bookmarks.isEmpty
+                  ? const Center(
+                    child: Text(
+                      "No bookmarks available",
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  )
+                  : ListView.builder(
+                    itemCount: _bookmarks.length,
+                    itemBuilder: (context, index) {
+                      String tabUrl = _bookmarks[index]['url'] ?? '';
+                      String tabTitle =
+                          _bookmarks[index]['title'] ?? 'Untitled';
+                      String iconUrl = _bookmarks[index]['icon'] ?? '';
+
+                      return Dismissible(
+                        key: Key(tabUrl),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          color: Colors.red,
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: const Icon(Icons.delete, color: Colors.white),
+                        ),
+                        onDismissed: (direction) => _removeBookmark(index),
+                        child: ListTile(
+                          leading:
+                              iconUrl.isNotEmpty
+                                  ? Image.network(
+                                    iconUrl,
+                                    width: 24,
+                                    height: 24,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            const Icon(
+                                              Icons.web,
+                                              color: Colors.white,
+                                            ),
+                                  )
+                                  : const Icon(Icons.web, color: Colors.white),
+                          title: Text(
+                            tabTitle,
+                            style: const TextStyle(color: Colors.white),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            tabUrl,
+                            style: const TextStyle(color: Colors.grey),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder:
+                                    (context) =>
+                                        SearchingPage(searchQuery: tabUrl),
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -290,7 +378,11 @@ class _BrowserPageState extends State<BrowserPage> {
               mainAxisSpacing: 16,
               crossAxisSpacing: 16,
               children: [
-                _buildShortcutItem(Icons.star, 'Dấu trang'),
+                _buildShortcutItem(
+                  Icons.star,
+                  'Dấu trang',
+                  onTap: _showBookmarks,
+                ),
                 _buildShortcutItem(Icons.list, 'Danh sách đọc'),
                 _buildShortcutItem(Icons.tab, 'Các thẻ gần đây'),
                 _buildShortcutItem(

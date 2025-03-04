@@ -411,7 +411,7 @@ class _SearchingPageState extends State<SearchingPage> {
                         icon: const Icon(Icons.tab, color: Colors.white),
                         onPressed: _showTabs,
                       ),
-                      if (_tabs.length > 1)
+                      if (_tabs.length >= 1)
                         Positioned(
                           right: 0,
                           top: 0,
