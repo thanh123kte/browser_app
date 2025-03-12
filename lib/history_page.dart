@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import 'package:brower_app/searching_page.dart';
 
 class HistoryPage extends StatefulWidget {
+  const HistoryPage({super.key});
+
   @override
   _HistoryPageState createState() => _HistoryPageState();
 }
@@ -22,7 +24,7 @@ class _HistoryPageState extends State<HistoryPage> {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     List<String> savedHistory = prefs.getStringList('history') ?? [];
     print("load history length: ${savedHistory.length}");
-    print("history list: ${savedHistory}");
+    print("history list: $savedHistory");
 
     setState(() {
       _history =

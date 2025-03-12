@@ -18,10 +18,17 @@ class _BrowserPageState extends State<BrowserPage> {
   List<Map<String, String>> _bookmarks = [];
   int _currentTabIndex = 0;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadTabsFromCache();
+    _loadBookmarksFromCache();
+  }
+
   String _getTitleFromUrl(String url) {
     Uri uri = Uri.parse(url);
     String domain = uri.host;
-    return domain.length > 10 ? domain.substring(0, 10) + "..." : domain;
+    return domain.length > 10 ? "${domain.substring(0, 10)}..." : domain;
   }
 
   String _getIconFromUrl(String url) {
@@ -71,10 +78,7 @@ class _BrowserPageState extends State<BrowserPage> {
     String query = _searchController.text.trim();
     if (query.isEmpty) return;
 
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String> history = prefs.getStringList('history') ?? [];
-
-    // Kiểm tra xem có phải URL hợp lệ không
+    // Kiểm tra nếu query là một URL hợp lệ
     bool isUrl =
         query.startsWith("http://") ||
         query.startsWith("https://") ||
@@ -83,10 +87,16 @@ class _BrowserPageState extends State<BrowserPage> {
     String searchUrl =
         isUrl
             ? (query.startsWith("http") ? query : "https://$query")
-            : query; // Don't add "https://www.google.com/search?q=" here
+            : "https://www.google.com/search?q=$query"; // Chuyển đổi thành URL tìm kiếm
 
-    // Don't add to history here, let SearchingPage handle it
+    setState(() {
+      _tabs.add(searchUrl); // Thêm tab mới
+      _currentTabIndex = _tabs.length - 1; // Chuyển đến tab mới nhất
+    });
 
+    _saveTabsToCache(); // Lưu danh sách tab vào cache
+
+    // Mở `searching_page` với URL vừa thêm
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -177,8 +187,8 @@ class _BrowserPageState extends State<BrowserPage> {
 
   void _addNewTab() async {
     setState(() {
-      _tabs.add("https://www.google.com"); // Thêm tab mới
-      _currentTabIndex = _tabs.length - 1; // Chuyển đến tab mới
+      _tabs.add("https://www.google.com"); // Thêm tab mới vào cuối danh sách
+      _currentTabIndex = _tabs.length - 1; // Chuyển đến tab mới nhất
     });
 
     await _saveTabsToCache(); // 🔥 Lưu danh sách tab mới vào cache
@@ -191,13 +201,6 @@ class _BrowserPageState extends State<BrowserPage> {
             (context) => SearchingPage(searchQuery: _tabs[_currentTabIndex]),
       ),
     );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _loadTabsFromCache();
-    _loadBookmarksFromCache();
   }
 
   @override
@@ -472,8 +475,8 @@ class _BrowserPageState extends State<BrowserPage> {
             ),
             FloatingActionButton.small(
               backgroundColor: Colors.blue,
-              child: const Icon(Icons.add),
               onPressed: _addNewTab,
+              child: const Icon(Icons.add),
             ),
             GestureDetector(
               onTap: _showTabs,

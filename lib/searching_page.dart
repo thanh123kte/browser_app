@@ -1,7 +1,11 @@
 import 'package:brower_app/browser_page.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import "credential-manager.dart";
+import "login-detector.dart";
+import "browser_page.dart";
 
 class SearchingPage extends StatefulWidget {
   final String searchQuery;
@@ -15,11 +19,22 @@ class SearchingPage extends StatefulWidget {
 class _SearchingPageState extends State<SearchingPage> {
   late InAppWebViewController _webViewController;
   late TextEditingController _textController;
+  late PullToRefreshController _pullToRefreshController;
+  bool _isLoading2 = false;
   bool _isLoading = true; // Trạng thái loading
   List<String> _tabs = []; // Danh sách tab
-  List<String> _bookmarkedTabs = [];
+  final List<String> _bookmarkedTabs = [];
   int _currentTabIndex = 0; // Tab đang mở
   List<String> _history = [];
+
+  bool _hasLoginForm = false;
+  int? _loginFormIndex;
+  String? _usernameFieldId;
+  String? _usernameFieldName;
+  String? _passwordFieldId;
+  String? _passwordFieldName;
+  bool _credentialsAvailable = false;
+  String _currentDomain = "";
 
   @override
   void initState() {
@@ -28,12 +43,16 @@ class _SearchingPageState extends State<SearchingPage> {
     _textController = TextEditingController(text: widget.searchQuery);
     _tabs.add(_processSearchQuery(widget.searchQuery));
     _loadTabsFromCache();
+    _pullToRefreshController = PullToRefreshController(
+      options: PullToRefreshOptions(color: Colors.blue),
+      onRefresh: () async {
+        _webViewController.reload();
+      },
+    );
   }
 
   void _initializeWebView(String url) {
-    if (_webViewController != null) {
-      _webViewController.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
-    }
+    _webViewController?.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
   }
 
   /// Xử lý URL hoặc tìm kiếm trên Google
@@ -64,7 +83,7 @@ class _SearchingPageState extends State<SearchingPage> {
     }
 
     await prefs.setStringList('history', history);
-    print("ddax add : ${newEntry}");
+    print("ddax add : $newEntry");
   }
 
   Future<void> _loadTabsFromCache() async {
@@ -74,7 +93,16 @@ class _SearchingPageState extends State<SearchingPage> {
     if (savedTabs != null && savedTabs.isNotEmpty) {
       setState(() {
         _tabs = savedTabs;
-        _currentTabIndex = 0;
+
+        // Kiểm tra nếu currentTabIndex đã được lưu trước đó
+        int? savedIndex = prefs.getInt('current_tab_index');
+        if (savedIndex != null &&
+            savedIndex >= 0 &&
+            savedIndex < _tabs.length) {
+          _currentTabIndex = savedIndex;
+        } else {
+          _currentTabIndex = _tabs.length - 1; // Mặc định chọn tab cuối cùng
+        }
       });
     }
   }
@@ -82,11 +110,13 @@ class _SearchingPageState extends State<SearchingPage> {
   /// Mở tab mới
   void _addNewTab() {
     setState(() {
-      _tabs.add('https://www.google.com');
+      _tabs.add('https://www.google.com'); // Mở tab với Google mặc định
       _currentTabIndex = _tabs.length - 1;
-      _initializeWebView(_tabs[_currentTabIndex]);
+      _initializeWebView(
+        _tabs[_currentTabIndex],
+      ); // Khởi tạo WebView cho tab mới
     });
-    _saveTabsToCache(); // 🔥 Lưu vào cache
+    _saveTabsToCache(); // 🔥 Lưu vào cache ngay sau khi tạo tab
   }
 
   /// Chuyển tab
@@ -107,7 +137,7 @@ class _SearchingPageState extends State<SearchingPage> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            return Container(
+            return SizedBox(
               height: MediaQuery.of(context).size.height * 0.6,
               child: Column(
                 children: [
@@ -206,7 +236,7 @@ class _SearchingPageState extends State<SearchingPage> {
   Future<void> _saveTabsToCache() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setStringList('saved_tabs', _tabs);
-    print("lưu rồi nè");
+    await prefs.setInt('saved_tab_index', _currentTabIndex);
   }
 
   Future<void> _addBookmark() async {
@@ -248,6 +278,321 @@ class _SearchingPageState extends State<SearchingPage> {
 
   void _openSettings() {}
 
+  Future<void> _checkForLoginForms() async {
+    WebUri? currentUri = await _webViewController.getUrl();
+    if (currentUri == null) return;
+
+    String currentUrl = currentUri.toString();
+    _currentDomain = CredentialManager.extractDomain(currentUrl);
+    print("===== TRANG WEB ĐÃ TẢI XONG =====");
+    print("URL: $currentUrl");
+    print("Domain: $_currentDomain");
+
+    // Danh sách từ khóa liên quan đến trang đăng nhập
+    List<String> loginKeywords = [
+      "login",
+      "signin",
+      "auth",
+      "account/login",
+      "user/login",
+      "session/new",
+    ];
+
+    // Kiểm tra URL có chứa từ khóa liên quan đến đăng nhập không
+    bool isLoginPage = loginKeywords.any(
+      (keyword) => currentUrl.toLowerCase().contains(keyword),
+    );
+
+    if (isLoginPage) {
+      print("Trang này có thể là trang đăng nhập.");
+
+      // Kiểm tra xem có thông tin đăng nhập đã lưu không
+      final savedCredentials = await CredentialManager.getCredentials(
+        _currentDomain,
+      );
+      setState(() {
+        _credentialsAvailable = savedCredentials != null;
+      });
+      print("Có thông tin đăng nhập đã lưu: $_credentialsAvailable");
+
+      // Nếu có mật khẩu đã lưu, hiển thị gợi ý tự động điền
+      if (_credentialsAvailable) {
+        _showAutofillPrompt();
+      }
+    } else {
+      print(
+        "Trang này không phải là trang đăng nhập, bỏ qua kiểm tra tự động điền.",
+      );
+    }
+
+    // Phát hiện form đăng nhập
+    final loginFormData = await LoginDetector.detectLoginForm(
+      _webViewController,
+    );
+    print("===== PHÁT HIỆN FORM ĐĂNG NHẬP =====");
+    print("loginFormData: $loginFormData");
+
+    if (loginFormData['hasLoginForm'] == true) {
+      setState(() {
+        _hasLoginForm = true;
+        _loginFormIndex = loginFormData['formIndex'];
+        _usernameFieldId = loginFormData['usernameFieldId'];
+        _usernameFieldName = loginFormData['usernameFieldName'];
+        _passwordFieldId = loginFormData['passwordFieldId'];
+        _passwordFieldName = loginFormData['passwordFieldName'];
+      });
+
+      print("Đã phát hiện form đăng nhập:");
+      print("- Form index: $_loginFormIndex");
+      print("- Username field ID: $_usernameFieldId");
+      print("- Username field name: $_usernameFieldName");
+      print("- Password field ID: $_passwordFieldId");
+      print("- Password field name: $_passwordFieldName");
+
+      await LoginDetector.markLoginFormPresent(_webViewController);
+      await LoginDetector.captureFormSubmission(_webViewController);
+    } else {
+      setState(() {
+        _hasLoginForm = false;
+      });
+      print("Không phát hiện form đăng nhập trên trang này");
+
+      final loginSuccessByUrl = await LoginDetector.detectLoginSuccessByUrl(
+        _webViewController,
+      );
+      if (loginSuccessByUrl) {
+        print("Phát hiện đăng nhập thành công dựa trên URL!");
+      }
+    }
+
+    final pendingCredentials = await LoginDetector.checkPendingCredentials(
+      _webViewController,
+    );
+    if (pendingCredentials['hasPendingCredentials'] == true) {
+      print("Tìm thấy thông tin đăng nhập đang chờ xử lý!");
+      _showSaveCredentialsPrompt(
+        pendingCredentials['username'],
+        pendingCredentials['password'],
+      );
+    }
+  }
+
+  Future<void> _checkLoginSuccess() async {
+    if (!_hasLoginForm) {
+      print("Không kiểm tra đăng nhập thành công vì không có form đăng nhập");
+      return;
+    }
+
+    print("===== KIỂM TRA ĐĂNG NHẬP THÀNH CÔNG =====");
+    print("Đang kiểm tra đăng nhập thành công...");
+
+    final loginSuccess = await LoginDetector.detectSuccessfulLogin(
+      _webViewController,
+    );
+    final loginSuccessByUrl = await LoginDetector.detectLoginSuccessByUrl(
+      _webViewController,
+    );
+
+    print("Kết quả kiểm tra đăng nhập thành công: $loginSuccess");
+    print(
+      "Kết quả kiểm tra đăng nhập thành công dựa trên URL: $loginSuccessByUrl",
+    );
+
+    if (loginSuccess || loginSuccessByUrl) {
+      print("Đã phát hiện đăng nhập thành công!");
+
+      // Lấy URL hiện tại sau khi đăng nhập
+      WebUri? currentUri = await _webViewController.getUrl();
+      if (currentUri == null) return;
+      String currentUrl = currentUri.toString();
+      String currentDomain = CredentialManager.extractDomain(currentUrl);
+
+      print("URL sau khi đăng nhập: $currentUrl");
+      print("Domain sau khi đăng nhập: $currentDomain");
+
+      // Kiểm tra xem đã có thông tin đăng nhập cho domain này chưa
+      final savedCredentials = await CredentialManager.getCredentials(
+        currentDomain,
+      );
+      if (savedCredentials != null) {
+        print(
+          "Đã có thông tin đăng nhập được lưu, không hiển thị thông báo lưu mật khẩu.",
+        );
+        return;
+      }
+
+      // Nếu chưa có, trích xuất thông tin đăng nhập
+      print("Đang trích xuất thông tin đăng nhập...");
+      final credentials = await LoginDetector.extractCredentials(
+        _webViewController,
+        _loginFormIndex!,
+        _usernameFieldId,
+        _usernameFieldName,
+        _passwordFieldId,
+        _passwordFieldName,
+      );
+
+      print("Kết quả trích xuất thông tin đăng nhập: $credentials");
+
+      if (credentials['success'] == true &&
+          credentials['username'] != null &&
+          credentials['username'].isNotEmpty &&
+          credentials['password'] != null &&
+          credentials['password'].isNotEmpty) {
+        print("Thông tin đăng nhập hợp lệ:");
+        print("- Username: ${credentials['username']}");
+        print("- Password: ${credentials['password']}");
+
+        // Hiển thị thông báo lưu mật khẩu nếu chưa có thông tin lưu trước đó
+        print("Hiển thị thông báo lưu mật khẩu");
+        _showSaveCredentialsPrompt(
+          credentials['username'],
+          credentials['password'],
+        );
+      } else {
+        print("Không thể trích xuất thông tin đăng nhập hợp lệ");
+      }
+
+      // Reset trạng thái form đăng nhập
+      setState(() {
+        _hasLoginForm = false;
+      });
+    } else {
+      print("Chưa phát hiện đăng nhập thành công");
+    }
+  }
+
+  void _showManualSavePasswordDialog() {
+    final usernameController = TextEditingController();
+    final passwordController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Lưu mật khẩu'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Nhập thông tin đăng nhập cho $_currentDomain'),
+                TextField(
+                  controller: usernameController,
+                  decoration: InputDecoration(labelText: 'Tên đăng nhập'),
+                ),
+                TextField(
+                  controller: passwordController,
+                  decoration: InputDecoration(labelText: 'Mật khẩu'),
+                  obscureText: true,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Hủy'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  if (usernameController.text.isNotEmpty &&
+                      passwordController.text.isNotEmpty) {
+                    await CredentialManager.saveCredentials(
+                      _currentDomain,
+                      usernameController.text,
+                      passwordController.text,
+                    );
+                    Navigator.of(context).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Đã lưu mật khẩu'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+                child: const Text('Lưu'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  void _showAutofillPrompt() {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Saved Login'),
+            content: Text(
+              'Do you want to use your saved login for $_currentDomain?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Not Now'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  Navigator.of(context).pop();
+                  final credentials = await CredentialManager.getCredentials(
+                    _currentDomain,
+                  );
+                  if (credentials != null) {
+                    await LoginDetector.fillCredentials(
+                      _webViewController,
+                      credentials['username']!,
+                      credentials['password']!,
+                    );
+                  }
+                },
+                child: const Text('Yes'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  void _showSaveCredentialsPrompt(String username, String password) {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Save Password'),
+            content: Text(
+              'Do you want to save your password for $_currentDomain?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                },
+                child: const Text('No'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await CredentialManager.saveCredentials(
+                    _currentDomain,
+                    username,
+                    password,
+                  );
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Password saved'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                },
+                child: const Text('Yes'),
+              ),
+            ],
+          ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -268,28 +613,48 @@ class _SearchingPageState extends State<SearchingPage> {
                     useHybridComposition: true,
                   ),
                 ),
+                pullToRefreshController:
+                    _pullToRefreshController, // Thêm controller này
                 onWebViewCreated: (controller) {
                   _webViewController = controller;
                 },
                 onLoadStart: (controller, url) {
                   setState(() {
-                    _isLoading = true;
+                    _isLoading2 = true;
+                    print("currrentabindex : ${_currentTabIndex}");
+                    _tabs[_currentTabIndex] = url.toString();
                   });
+                  print("Bắt đầu tải trang: ${url?.toString()}");
                 },
-                onLoadStop: (controller, url) {
+                onLoadStop: (controller, url) async {
                   setState(() {
                     _isLoading = false;
                     if (url != null) {
-                      _textController.text = url.toString();
-                      _addToHistory(url.toString());
+                      setState(() {
+                        _textController.text = url.toString();
+                        _addToHistory(url.toString());
+                      });
                     }
+                    _saveTabsToCache();
                   });
+                  // Dừng hiệu ứng kéo để làm mới
+                  _pullToRefreshController.endRefreshing();
+
+                  // Kiểm tra form đăng nhập
+                  await _checkForLoginForms();
                 },
                 onProgressChanged: (controller, progress) {
+                  print("Tiến trình tải trang: $progress%");
                   if (progress == 100) {
                     setState(() {
                       _isLoading = false;
                     });
+
+                    print(
+                      "Trang đã tải 100%, kiểm tra đăng nhập thành công...",
+                    );
+                    // Kiểm tra xem đăng nhập có thành công không
+                    _checkLoginSuccess();
                   }
                 },
               ),
@@ -397,46 +762,27 @@ class _SearchingPageState extends State<SearchingPage> {
                       }
                     },
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.refresh, color: Colors.white),
-                    onPressed: () => _webViewController.reload(),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.add, color: Colors.white),
+                  FloatingActionButton.small(
+                    backgroundColor: Colors.blue,
                     onPressed: _addNewTab,
+                    child: const Icon(Icons.add),
                   ),
-                  Stack(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.tab, color: Colors.white),
-                        onPressed: _showTabs,
+                  GestureDetector(
+                    onTap: _showTabs,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
                       ),
-                      if (_tabs.length >= 1)
-                        Positioned(
-                          right: 0,
-                          top: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: Colors.red,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            constraints: const BoxConstraints(
-                              minWidth: 20,
-                              minHeight: 20,
-                            ),
-                            child: Text(
-                              _tabs.length.toString(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                        ),
-                    ],
+                      decoration: BoxDecoration(
+                        color: Colors.grey[800],
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        '${_tabs.length}',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
                   ),
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.more_vert, color: Colors.white),
@@ -448,6 +794,10 @@ class _SearchingPageState extends State<SearchingPage> {
                         ); // Cập nhật UI sau khi thêm/xóa bookmark
                       } else if (value == 'settings') {
                         _openSettings();
+                      } else if (value == "passwords") {
+                        _showSavedPasswords();
+                      } else if (value == 'save_password') {
+                        _showManualSavePasswordDialog();
                       }
                     },
                     itemBuilder:
@@ -479,6 +829,26 @@ class _SearchingPageState extends State<SearchingPage> {
                             ),
                           ),
                           PopupMenuItem<String>(
+                            value: 'save_password',
+                            child: Row(
+                              children: [
+                                Icon(Icons.save, color: Colors.grey),
+                                const SizedBox(width: 8),
+                                const Text('Lưu mật khẩu trang này'),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem<String>(
+                            value: 'passwords',
+                            child: Row(
+                              children: [
+                                Icon(Icons.password, color: Colors.grey),
+                                const SizedBox(width: 8),
+                                const Text('Saved Passwords'),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem<String>(
                             value: 'settings',
                             child: Row(
                               children: [
@@ -496,6 +866,62 @@ class _SearchingPageState extends State<SearchingPage> {
           ],
         ),
       ),
+    );
+  }
+
+  void _showSavedPasswords() async {
+    final savedCredentials = await CredentialManager.getAllCredentials();
+
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Saved Passwords'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child:
+                  savedCredentials.isEmpty
+                      ? const Center(child: Text('No saved passwords'))
+                      : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: savedCredentials.length,
+                        itemBuilder: (context, index) {
+                          final credential = savedCredentials[index];
+                          return ListTile(
+                            leading: Image.network(
+                              'https://www.google.com/s2/favicons?domain=${credential['domain']}&sz=64',
+                              width: 24,
+                              height: 24,
+                              errorBuilder:
+                                  (context, error, stackTrace) =>
+                                      const Icon(Icons.web),
+                            ),
+                            title: Text(credential['domain']),
+                            subtitle: Text(credential['username']),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () async {
+                                await CredentialManager.deleteCredentials(
+                                  credential["domain"],
+                                );
+                                Navigator.pop(context);
+                                Future.delayed(
+                                  const Duration(milliseconds: 300),
+                                  _showSavedPasswords,
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
     );
   }
 }
