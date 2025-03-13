@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:brower_app/chat_bubble.dart';
@@ -5,6 +6,7 @@ import 'package:brower_app/history_page.dart';
 import 'package:brower_app/searching_page.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 
 class BrowserPage extends StatefulWidget {
   const BrowserPage({super.key});
@@ -21,11 +23,79 @@ class _BrowserPageState extends State<BrowserPage> {
   double posX = 20.0;
   double posY = 100.0;
 
+  final TextEditingController _chatController = TextEditingController();
+  List<Map<String, dynamic>> _chatHistory = [];
+
   @override
   void initState() {
     super.initState();
     _loadTabsFromCache();
     _loadBookmarksFromCache();
+  }
+
+  void sendMessage(String message) async {
+    if (message.isEmpty) return;
+
+    setState(() {
+      _chatHistory.add({"text": message, "isUser": true});
+    });
+
+    _chatController.clear();
+
+    try {
+      final data = await callChatAPI(message); // Gọi API và nhận về dữ liệu
+
+      // Lấy phản hồi từ trường "response" trong dữ liệu trả về
+      String botReply = data["response"] ?? "Không nhận được phản hồi";
+
+      setState(() {
+        _chatHistory.add({"text": botReply, "isUser": false});
+      });
+    } catch (e) {
+      print("API Error: $e");
+      setState(() {
+        _chatHistory.add({
+          "text": "Lỗi kết nối đến máy chủ: $e",
+          "isUser": false,
+        });
+      });
+    }
+  }
+
+  Future<Map<String, dynamic>> callChatAPI(String message) async {
+    try {
+      final response = await http.post(
+        Uri.parse('http://10.0.2.2:8000/chat'),
+        headers: {
+          'Content-Type': 'application/json; charset=UTF-8',
+          'Accept': 'application/json',
+        },
+        body: utf8.encode(
+          jsonEncode({"message": message, "conversation_history": []}),
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        // Đảm bảo decode UTF-8 đúng cách
+        final String decodedResponse = utf8.decode(response.bodyBytes);
+        final data = jsonDecode(decodedResponse);
+        debugPrint("API response decoded: $data");
+
+        // Đảm bảo response text cũng được decode UTF-8
+        if (data.containsKey("response")) {
+          data["response"] = data["response"].toString();
+        }
+
+        return data;
+      } else {
+        debugPrint("Error status code: ${response.statusCode}");
+        debugPrint("Error body: ${utf8.decode(response.bodyBytes)}");
+        throw Exception("Lỗi API: ${response.statusCode}");
+      }
+    } catch (e) {
+      debugPrint("Exception during API call: $e");
+      throw Exception("Lỗi kết nối: $e");
+    }
   }
 
   String _getTitleFromUrl(String url) {
@@ -410,8 +480,26 @@ class _BrowserPageState extends State<BrowserPage> {
     );
   }
 
-  // Add this method to open the chat interface
   void openChat(BuildContext context) {
+    // Tạo một controller riêng cho ListView để có thể cuộn xuống khi có tin nhắn mới
+    final ScrollController _scrollController = ScrollController();
+
+    // Tạo một bản sao của chat history để sử dụng trong modal
+    List<Map<String, dynamic>> _localChatHistory = List.from(_chatHistory);
+
+    // Hàm để cuộn xuống cuối danh sách tin nhắn
+    void _scrollToBottom() {
+      if (_scrollController.hasClients) {
+        Future.delayed(const Duration(milliseconds: 100), () {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        });
+      }
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -420,79 +508,165 @@ class _BrowserPageState extends State<BrowserPage> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
-        return FractionallySizedBox(
-          heightFactor: 0.8, // Takes up 4/5 of the screen
-          child: Column(
-            children: [
-              // Chat header
-              Container(
-                padding: const EdgeInsets.all(16),
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  color: Colors.blue,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                ),
-                child: const Text(
-                  'Chat với chúng tôi',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            // Hàm gửi tin nhắn trong context của modal bottom sheet
+            void _sendMessageInChat(String message) async {
+              if (message.isEmpty) return;
 
-              // Chat messages area
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: const [
-                    ChatBubble(
-                      text: 'Xin chào! Tôi có thể giúp gì cho bạn?',
-                      isUser: false,
-                    ),
-                    SizedBox(height: 8),
-                    ChatBubble(
-                      text: 'Tôi cần hỗ trợ về trình duyệt.',
-                      isUser: true,
-                    ),
-                  ],
-                ),
-              ),
-              // Message input area
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        decoration: InputDecoration(
-                          hintText: 'Nhập tin nhắn...',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                        ),
+              // Cập nhật cả state của modal và state của widget cha
+              setModalState(() {
+                _localChatHistory.add({"text": message, "isUser": true});
+              });
+
+              setState(() {
+                _chatHistory = List.from(_localChatHistory);
+              });
+
+              _chatController.clear();
+              _scrollToBottom();
+
+              try {
+                final data = await callChatAPI(message);
+                String botReply =
+                    data["response"] ?? "Không nhận được phản hồi";
+
+                // Cập nhật cả state của modal và state của widget cha
+                setModalState(() {
+                  _localChatHistory.add({"text": botReply, "isUser": false});
+                });
+
+                setState(() {
+                  _chatHistory = List.from(_localChatHistory);
+                });
+
+                _scrollToBottom();
+                debugPrint("Chat history updated: $_localChatHistory");
+              } catch (e) {
+                debugPrint("API Error: $e");
+
+                // Cập nhật cả state của modal và state của widget cha
+                setModalState(() {
+                  _localChatHistory.add({
+                    "text": "Lỗi kết nối đến máy chủ: $e",
+                    "isUser": false,
+                  });
+                });
+
+                setState(() {
+                  _chatHistory = List.from(_localChatHistory);
+                });
+
+                _scrollToBottom();
+              }
+            }
+
+            return FractionallySizedBox(
+              heightFactor: 0.8,
+              child: Column(
+                children: [
+                  // Tiêu đề chat
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    width: double.infinity,
+                    decoration: const BoxDecoration(
+                      color: Colors.blue,
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(20),
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.send, color: Colors.blue),
-                      onPressed: () {
-                        // làm chi ở đây thì làm ko thì gửi sang chat_bubble
-                      },
+                    child: const Text(
+                      'Chat với chúng tôi',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                  ],
-                ),
+                  ),
+
+                  // Phần hiển thị tin nhắn
+                  Expanded(
+                    child:
+                        _localChatHistory.isEmpty
+                            ? const Center(
+                              child: Text(
+                                "Hãy gửi tin nhắn để bắt đầu cuộc trò chuyện",
+                                style: TextStyle(color: Colors.grey),
+                              ),
+                            )
+                            : ListView.builder(
+                              controller: _scrollController,
+                              padding: const EdgeInsets.all(10),
+                              itemCount: _localChatHistory.length,
+                              itemBuilder: (context, index) {
+                                final message = _localChatHistory[index];
+                                return ChatBubble(
+                                  key: ValueKey(
+                                    "chat_${index}_${message["isUser"]}",
+                                  ),
+                                  text: message["text"] ?? "",
+                                  isUser: message["isUser"] ?? false,
+                                );
+                              },
+                            ),
+                  ),
+
+                  // Ô nhập tin nhắn
+                  Padding(
+                    padding: MediaQuery.of(context).viewInsets,
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        border: Border(
+                          top: BorderSide(color: Colors.grey, width: 0.5),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          // Ô nhập văn bản
+                          Expanded(
+                            child: TextField(
+                              controller: _chatController,
+                              decoration: const InputDecoration(
+                                hintText: "Nhập tin nhắn...",
+                                border: InputBorder.none,
+                              ),
+                              onSubmitted: (text) {
+                                if (text.isNotEmpty) {
+                                  _sendMessageInChat(text);
+                                }
+                              },
+                            ),
+                          ),
+
+                          // Nút gửi tin nhắn
+                          IconButton(
+                            icon: const Icon(Icons.send, color: Colors.blue),
+                            onPressed: () {
+                              if (_chatController.text.isNotEmpty) {
+                                _sendMessageInChat(_chatController.text);
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
-    );
+    ).then((_) {
+      // Khi đóng modal, cập nhật lại chat history của widget cha
+      setState(() {
+        _chatHistory = List.from(_localChatHistory);
+      });
+    });
   }
 
   Widget _buildShortcutSection() {
