@@ -1,4 +1,5 @@
 import 'package:brower_app/browser_page.dart';
+import 'package:brower_app/setting_page.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -26,6 +27,9 @@ class _SearchingPageState extends State<SearchingPage> {
   final List<String> _bookmarkedTabs = [];
   int _currentTabIndex = 0; // Tab đang mở
   List<String> _history = [];
+
+  bool _isAdBlockEnabled = false;
+  bool _isSecurityEnabled = false;
 
   bool _hasLoginForm = false;
   int? _loginFormIndex;
@@ -276,7 +280,24 @@ class _SearchingPageState extends State<SearchingPage> {
     });
   }
 
-  void _openSettings() {}
+  void _openSettings(
+    BuildContext context,
+    bool currentAdBlock,
+    bool currentSecurity,
+    Function(bool, bool) onSettingsChanged,
+  ) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder:
+            (context) => SettingPage(
+              onSettingsChanged: onSettingsChanged,
+              initialAdBlock: currentAdBlock,
+              initialSecurity: currentSecurity,
+            ),
+      ),
+    );
+  }
 
   Future<void> _checkForLoginForms() async {
     WebUri? currentUri = await _webViewController.getUrl();
@@ -789,11 +810,30 @@ class _SearchingPageState extends State<SearchingPage> {
                     onSelected: (value) async {
                       if (value == 'bookmark') {
                         await _addBookmark();
-                        setState(
-                          () {},
-                        ); // Cập nhật UI sau khi thêm/xóa bookmark
+                        setState(() {});
                       } else if (value == 'settings') {
-                        _openSettings();
+                        _openSettings(
+                          context,
+                          _isAdBlockEnabled,
+                          _isSecurityEnabled,
+                          (bool adBlock, bool security) {
+                            setState(() {
+                              _isAdBlockEnabled = adBlock;
+                              _isSecurityEnabled = security;
+                            });
+                            if (_isAdBlockEnabled) {
+                              _applyAdBlock();
+                            } else {
+                              _removeAdBlock();
+                            }
+
+                            if (_isSecurityEnabled) {
+                              _applySecurity();
+                            } else {
+                              _removeSecurity();
+                            }
+                          },
+                        );
                       } else if (value == "passwords") {
                         _showSavedPasswords();
                       } else if (value == 'save_password') {
@@ -923,5 +963,34 @@ class _SearchingPageState extends State<SearchingPage> {
             ],
           ),
     );
+  }
+
+  bool isAdBlockEnabled() {
+    return _isAdBlockEnabled;
+  }
+
+  bool isSecurityEnabled() {
+    return _isSecurityEnabled;
+  }
+
+  void _applyAdBlock() {
+    print("Chặn quảng cáo đang hoạt động");
+    // Thêm logic xử lý chặn quảng cáo tại đây
+  }
+
+  void _removeAdBlock() {
+    print("Chặn quảng cáo đã tắt");
+    // Thêm logic xử lý tắt chặn quảng cáo tại đây
+  }
+
+  // Hàm xử lý khi Security được bật/tắt
+  void _applySecurity() {
+    print("Bảo mật đang hoạt động");
+    // Thêm logic xử lý bảo mật tại đây
+  }
+
+  void _removeSecurity() {
+    print("Bảo mật đã tắt");
+    // Thêm logic xử lý tắt bảo mật tại đây
   }
 }
