@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:brower_app/chat_bubble.dart';
 import 'package:brower_app/history_page.dart';
 import 'package:brower_app/searching_page.dart';
 import 'package:flutter/material.dart';
@@ -17,6 +18,8 @@ class _BrowserPageState extends State<BrowserPage> {
   List<String> _tabs = [];
   List<Map<String, String>> _bookmarks = [];
   int _currentTabIndex = 0;
+  double posX = 20.0;
+  double posY = 100.0;
 
   @override
   void initState() {
@@ -301,58 +304,194 @@ class _BrowserPageState extends State<BrowserPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 38, 38, 39),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: ListView(
-                children: [
-                  _buildShortcutSection(),
-                  const SizedBox(height: 16),
-                  _buildBookmarkSection(),
-                ],
-              ),
-            ),
+      // Wrap your existing body with a Stack to add the floating button
+      body: Stack(
+        children: [
+          // Your existing SafeArea content
+          SafeArea(
+            child: Column(
+              children: [
+                Expanded(
+                  child: ListView(
+                    children: [
+                      _buildShortcutSection(),
+                      const SizedBox(height: 16),
+                      _buildBookmarkSection(),
+                    ],
+                  ),
+                ),
 
-            // Thanh tìm kiếm
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _searchController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: 'Tìm kiếm hoặc nhập URL',
-                        hintStyle: const TextStyle(color: Colors.white60),
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          color: Colors.white,
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[800],
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide.none,
+                // Thanh tìm kiếm
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _searchController,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: 'Tìm kiếm hoặc nhập URL',
+                            hintStyle: const TextStyle(color: Colors.white60),
+                            prefixIcon: const Icon(
+                              Icons.search,
+                              color: Colors.white,
+                            ),
+                            filled: true,
+                            fillColor: Colors.grey[800],
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(30),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                          onSubmitted: (_) => _onSearch(),
                         ),
                       ),
-                      onSubmitted: (_) => _onSearch(),
-                    ),
+                      IconButton(
+                        icon: const Icon(
+                          Icons.arrow_forward,
+                          color: Colors.white,
+                        ),
+                        onPressed: _onSearch,
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.arrow_forward, color: Colors.white),
-                    onPressed: _onSearch,
-                  ),
-                ],
-              ),
-            ),
+                ),
 
-            // Thanh điều hướng
-            _buildBottomNavigation(),
+                // Thanh điều hướng
+                _buildBottomNavigation(),
+              ],
+            ),
+          ),
+
+          // Add the floating button
+          Positioned(
+            left: posX,
+            top: posY,
+            child: Draggable(
+              feedback: floatingButton(),
+              childWhenDragging: Container(),
+              onDragEnd: (details) {
+                setState(() {
+                  posX = details.offset.dx.clamp(
+                    0.0,
+                    MediaQuery.of(context).size.width - 60,
+                  );
+                  posY = details.offset.dy.clamp(
+                    0.0,
+                    MediaQuery.of(context).size.height - 60,
+                  );
+                });
+              },
+              child: floatingButton(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Add this method for the floating button
+  Widget floatingButton() {
+    return GestureDetector(
+      onTap: () => openChat(context),
+      child: Container(
+        width: 60,
+        height: 60,
+        decoration: BoxDecoration(
+          color: Colors.blue,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(color: Colors.black26, blurRadius: 10, spreadRadius: 2),
           ],
         ),
+        child: const Icon(Icons.chat, color: Colors.white, size: 30),
       ),
+    );
+  }
+
+  // Add this method to open the chat interface
+  void openChat(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return FractionallySizedBox(
+          heightFactor: 0.8, // Takes up 4/5 of the screen
+          child: Column(
+            children: [
+              // Chat header
+              Container(
+                padding: const EdgeInsets.all(16),
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  color: Colors.blue,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: const Text(
+                  'Chat với chúng tôi',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+
+              // Chat messages area
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: const [
+                    ChatBubble(
+                      text: 'Xin chào! Tôi có thể giúp gì cho bạn?',
+                      isUser: false,
+                    ),
+                    SizedBox(height: 8),
+                    ChatBubble(
+                      text: 'Tôi cần hỗ trợ về trình duyệt.',
+                      isUser: true,
+                    ),
+                  ],
+                ),
+              ),
+              // Message input area
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        decoration: InputDecoration(
+                          hintText: 'Nhập tin nhắn...',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.send, color: Colors.blue),
+                      onPressed: () {
+                        // làm chi ở đây thì làm ko thì gửi sang chat_bubble
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
