@@ -40,6 +40,108 @@ class _SearchingPageState extends State<SearchingPage> {
   bool _credentialsAvailable = false;
   String _currentDomain = "";
 
+  final adUrlFilters = [
+    ".*.doubleclick.net/.*",
+    ".*.ads.pubmatic.com/.*",
+    ".*.googlesyndication.com/.*",
+    ".*.google-analytics.com/.*",
+    ".*.adservice.google.*/.*",
+    ".*.adbrite.com/.*",
+    ".*.exponential.com/.*",
+    ".*.quantserve.com/.*",
+    ".*.scorecardresearch.com/.*",
+    ".*.zedo.com/.*",
+    ".*.adsafeprotected.com/.*",
+    ".*.teads.tv/.*",
+    ".*.outbrain.com/.*",
+    ".*.criteo.com/.*",
+    ".*.adroll.com/.*",
+    ".*.rubiconproject.com/.*",
+    ".*.openx.net/.*",
+    ".*.media.net/.*",
+    ".*.yieldmo.com/.*",
+    ".*.taboola.com/.*",
+    ".*.revcontent.com/.*",
+    ".*.sharethrough.com/.*",
+    ".*.indexexchange.com/.*",
+    ".*.stickyadstv.com/.*",
+    ".*.smartadserver.com/.*",
+    ".*.conversantmedia.com/.*",
+    ".*.lijit.com/.*",
+    ".*.districtm.ca/.*",
+    ".*.sovrn.com/.*",
+    ".*.3lift.com/.*",
+    ".*.adnxs.com/.*", // AppNexus
+    ".*.cloudflareinsights.com/.*", //Cloudflare Analytics
+    ".*.bing.com/.*ad.*", //bing ads
+    ".*.facebook.com/.*ad.*", //facebook ads
+    ".*.twitter.com/.*ad.*", //twitter ads
+    ".*.amazon-adsystem.com/.*",
+    ".*.2mdn.net/.*",
+    ".*.adform.net/.*",
+    ".*.adtechus.com/.*",
+    ".*.bluekai.com/.*",
+    ".*.rlcdn.com/.*",
+    ".*.turn.com/.*",
+    ".*.mathtag.com/.*",
+    ".*.serving-sys.com/.*",
+    ".*.adsymptotic.com/.*",
+    ".*.demdex.net/.*",
+    ".*.krxd.net/.*",
+    ".*.media6degrees.com/.*",
+    ".*.owneriq.net/.*",
+    ".*.simpli.fi/.*",
+    ".*.tribalfusion.com/.*",
+    ".*.valueclick.com/.*",
+    ".*.yieldlab.net/.*",
+    ".*.yimg.com/.*ad.*",
+    ".*.yahoo.com/.*ad.*",
+    ".*.scorecardresearch.com/.*",
+    ".*.adreactor.com/.*",
+    ".*.imrworldwide.com/.*",
+    ".*.nielsen.com/.*",
+    ".*.moatads.com/.*",
+    ".*.adsnative.com/.*",
+    ".*.adswizz.com/.*",
+    ".*.spotx.tv/.*",
+    ".*.brightroll.com/.*",
+    ".*.tremorvideo.com/.*",
+    ".*.videologygroup.com/.*",
+    ".*.liverail.com/.*",
+    ".*.freewheel.tv/.*",
+    ".*.springserve.com/.*",
+    ".*.beachfront.com/.*",
+    ".*.telaria.com/.*",
+    ".*.videohub.tv/.*",
+    ".*.extremereach.com/.*",
+    ".*.adaptv.tv/.*",
+    ".*.videoplaza.tv/.*",
+    ".*.yumen.com/.*",
+    ".*.smartclip.net/.*",
+    ".*.videonow.tv/.*",
+    ".*.adotmob.com/.*",
+    ".*.inmobi.com/.*",
+    ".*.jumptap.com/.*",
+    ".*.millennialmedia.com/.*",
+    ".*.mobfox.com/.*",
+    ".*.mobpartner.com/.*",
+    ".*.smaato.com/.*",
+    ".*.vungle.com/.*",
+    ".*.chartboost.com/.*",
+    ".*.applovin.com/.*",
+    ".*.unityads.unity3d.com/.*",
+    ".*.ironsource.com/.*",
+    ".*.tapjoy.com/.*",
+    ".*.fyber.com/.*",
+    ".*.adcolony.com/.*",
+    ".*.startapp.com/.*",
+    ".*.pollfish.com/.*",
+    ".*.mopub.com/.*",
+    ".*.flurry.com/.*",
+    ".*.crashlytics.com/.*"
+  ];
+  final List<ContentBlocker> contentBlockers = [];
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +155,25 @@ class _SearchingPageState extends State<SearchingPage> {
         _webViewController.reload();
       },
     );
+    // for each Ad URL filter, add a Content Blocker to block its loading.
+    for (final adUrlFilter in adUrlFilters) {
+      contentBlockers.add(ContentBlocker(
+          trigger: ContentBlockerTrigger(
+            urlFilter: adUrlFilter,
+          ),
+          action: ContentBlockerAction(
+            type: ContentBlockerActionType.BLOCK,
+          )));
+    }
+
+    // apply the "display: none" style to some HTML elements
+    contentBlockers.add(ContentBlocker(
+        trigger: ContentBlockerTrigger(
+          urlFilter: ".*",
+        ),
+        action: ContentBlockerAction(
+            type: ContentBlockerActionType.CSS_DISPLAY_NONE,
+            selector: ".banner, .banners, .ads, .ad, .advert")));
   }
 
   void _initializeWebView(String url) {
@@ -826,7 +947,7 @@ class _SearchingPageState extends State<SearchingPage> {
                             } else {
                               _removeAdBlock();
                             }
-
+                            _webViewController.reload();
                             if (_isSecurityEnabled) {
                               _applySecurity();
                             } else {
@@ -976,21 +1097,30 @@ class _SearchingPageState extends State<SearchingPage> {
   void _applyAdBlock() {
     print("Chặn quảng cáo đang hoạt động");
     // Thêm logic xử lý chặn quảng cáo tại đây
+    _webViewController?.setSettings(
+        settings: InAppWebViewSettings(
+            contentBlockers: contentBlockers));
   }
 
   void _removeAdBlock() {
     print("Chặn quảng cáo đã tắt");
     // Thêm logic xử lý tắt chặn quảng cáo tại đây
+    _webViewController?.setSettings(
+        settings: InAppWebViewSettings(contentBlockers: []));
   }
 
   // Hàm xử lý khi Security được bật/tắt
   void _applySecurity() {
     print("Bảo mật đang hoạt động");
+    _webViewController?.setSettings(
+        settings: InAppWebViewSettings(thirdPartyCookiesEnabled: false));
     // Thêm logic xử lý bảo mật tại đây
   }
 
   void _removeSecurity() {
     print("Bảo mật đã tắt");
+    _webViewController?.setSettings(
+        settings: InAppWebViewSettings(thirdPartyCookiesEnabled: true));
     // Thêm logic xử lý tắt bảo mật tại đây
   }
 }
